@@ -1,0 +1,110 @@
+\documentclass[11pt, a4paper]{article}
+
+% ── Packages ──
+\usepackage[margin=2cm]{geometry}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{tabularx}
+\usepackage{booktabs}
+\usepackage{parskip}
+\usepackage{microtype}
+
+% ── Formatting ──
+\titleformat{\section}{\large\bfseries}{}{0em}{}[\titlerule]
+\titlespacing*{\section}{0pt}{1.2em}{0.6em}
+\setlength{\parindent}{0pt}
+\pagestyle{plain}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue!60!black,
+    urlcolor=blue!60!black,
+}
+
+\begin{document}
+
+\begin{center}
+    {\LARGE \textbf{Approach Document}} \\[0.3em]
+    {\large SHL Conversational Assessment Recommender} \\[0.2em]
+    {\normalsize Aryan Khurana} \\[0.1em]
+    {\normalsize aryankhurana1701@gmail.com}
+\end{center}
+
+\vspace{0.5em}
+
+\section{System Design}
+
+The agent is built as a \textbf{4-node LangGraph state machine} behind a stateless FastAPI endpoint (\texttt{POST /chat}).
+
+\begin{enumerate}[leftmargin=1.5em, nosep]
+    \item \textbf{Analyze \& Route} - Classifies user intent into one of six categories (\texttt{clarify}, \texttt{recommend}, \texttt{refine}, \texttt{compare}, \texttt{refuse}, \texttt{confirm}) and extracts structured context (role, seniority, skills, language).
+    \item \textbf{Retrieve} - Performs semantic search over the 377-item SHL catalog using a \textbf{FAISS} index with \texttt{gemini-embedding-001} embeddings. Returns top-20 candidates.
+    \item \textbf{Generate Response} - Sends conversation history and retrieved candidates to \textbf{Gemini 2.5 Flash Lite}. The LLM selects 1--10 assessments and generates a natural-language explanation.
+    \item \textbf{Validate \& Format} - Cross-references every recommendation against the source \texttt{shl\allowbreak\_product\allowbreak\_catalog.json}. Hallucinated URLs or malformed entries are silently dropped.
+\end{enumerate}
+
+\textbf{Key decision:} The API is fully stateless-the client sends the entire conversation history on each call. Because the UI strips the \texttt{recommendations} JSON array before sending history back, the agent must \emph{reconstruct} its own previous shortlist by parsing its prior text responses. This was the single hardest engineering problem in the project.
+
+\section{Retrieval Setup}
+
+\begin{itemize}[leftmargin=1.5em, nosep]
+    \item \textbf{Embedding model:} \texttt{gemini-embedding-001} (768-dim, API-based via Google Generative AI). Initially used \texttt{all-MiniLM-L6-v2} locally, but switched to Gemini embeddings to eliminate the \textasciitilde800\,MB PyTorch dependency that exceeded Render's free-tier memory limit.
+    \item \textbf{Document representation:} Each catalog item is embedded as a composite string: \texttt{name + description + assessment types + job levels + languages + duration}. This allows semantic matching across multiple dimensions (e.g., ``entry-level Java'' matches on both seniority and skill).
+    \item \textbf{Two-stage retrieval:} FAISS returns 20 candidates; the LLM reasons over the full metadata to select the best 1--10. Retrieving more than the final count ensures that relevant items missed by pure embedding similarity can still be surfaced by the LLM's reasoning.
+    \item \textbf{Index:} Pre-built locally and shipped with the Docker image. The index is $<$2\,MB and loads in $<$100\,ms at startup.
+\end{itemize}
+
+\section{Prompt Design}
+
+Prompts are stored in \texttt{app/\allowbreak prompts.py} as four intent-specific templates:
+
+\begin{itemize}[leftmargin=1.5em, nosep]
+    \item \textbf{Analyze prompt:} Includes the current turn count and \emph{turn-cap pressure} - if the conversation reaches turn 5+, the agent is instructed to skip clarification and commit to a recommendation immediately.
+    \item \textbf{Recommend prompt:} Instructs the LLM to select by \emph{index number only} from the candidate list, never to invent names, and to list all recommended assessment names in its reply text (required for stateless reconstruction on subsequent turns).
+    \item \textbf{Refine prompt:} Explicitly models the ``add/drop/replace'' patterns observed in the sample traces (e.g., C9: ``Add AWS and Docker. Drop REST'').
+    \item \textbf{Compare prompt:} Restricts the LLM to catalog-only evidence when explaining differences between assessments, preventing hallucination of external product knowledge.
+\end{itemize}
+
+All prompts enforce \textbf{raw JSON output} (no markdown fencing) with a fallback regex parser in the agent code for robustness.
+
+\section{Evaluation Approach}
+
+I developed a custom evaluation harness (\texttt{scripts/\allowbreak run\allowbreak\_evaluator.py}) that replays all 10 provided conversation traces against the live API and measures three axes:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabularx}{\textwidth}{l l X}
+\toprule
+\textbf{Metric} & \textbf{Result} & \textbf{What it measures} \\
+\midrule
+Hard Evals & 10/10 & Schema compliance, catalog URL validity, turn-cap adherence \\
+Mean Recall@10 & 0.44 & Fraction of ground-truth URLs present in the agent's final top-10 list \\
+Behavior Probes & Pass & Clarify-before-recommend, off-topic refusal, refinement accuracy \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\textbf{Groundedness check:} Every recommendation passes through a post-LLM validation layer (\texttt{validate\allowbreak\_and\allowbreak\_format}) that cross-references URLs against the raw catalog JSON. Any hallucinated product is dropped before the response is returned to the client.
+
+\section{What Didn't Work}
+
+\begin{enumerate}[leftmargin=1.5em, nosep]
+    \item \textbf{Stateless reconstruction via substring matching.} The first implementation used \texttt{catalog\_name in text} to recover previous recommendations from assistant messages. This failed catastrophically on overlapping names (``Java'' matched ``Java 8'', ``Java 8 (New)'') and short names (``Spring'' was dropped by a length-safety filter). \emph{Fix:} Replaced with a line-by-line regex parser using word boundaries and substring-overlap deduplication.
+
+    \item \textbf{Most-recent-message extraction.} When a ``refuse'' or ``compare'' turn produced no recommendations in its text, the reconstruction function returned an empty list, losing the entire shortlist. \emph{Fix:} Changed the parser to walk backwards through assistant messages until it finds one containing catalog items.
+
+    \item \textbf{Turn-cap miscount.} The assignment specifies ``8 turns including user \& assistant'' (= 4 pairs). Conversations like C9 contain 7 user turns in the trace, but the evaluator enforces the 8-message limit. \emph{Fix:} Added turn-cap pressure in the prompt and a hard safeguard that forces \texttt{end\_of\_conversation: true} at the 4th user turn.
+    
+    \item \textbf{Deployment memory overflow.} The original stack used \texttt{sentence-transformers} with PyTorch (\textasciitilde800\,MB), which exceeded Render's 512\,MB free-tier RAM. \emph{Fix:} Switched to Google's \texttt{gemini-embedding-001} API for embeddings, eliminating PyTorch entirely and reducing the Docker image from \textasciitilde2\,GB to \textasciitilde300\,MB.
+\end{enumerate}
+
+\textbf{Improvement measurement:} After each fix, I re-ran the full 10-trace evaluation. Hard Eval pass rate went from 8/10 $\rightarrow$ 10/10 and Mean Recall@10 improved from 0.35 $\rightarrow$ 0.44.
+
+\section{AI Tools Used}
+
+I used \textbf{Antigravity} (powered by Gemini and Claude Opus) as an agentic coding assistant. It was used to architect the LangGraph state machine, implement the FAISS retrieval pipeline, and build the automated evaluation harness. All design decisions and edge-case fixes were manually verified and iterated upon.
+
+\end{document}
