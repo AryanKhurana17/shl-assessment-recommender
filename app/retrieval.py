@@ -1,23 +1,22 @@
 """
 FAISS-based semantic retrieval
 
-Design choice: FAISS + sentence-transformers (all-MiniLM-L6-v2)
-- Free, local, no API key needed for embeddings
-- ~6ms per query at runtime (vs ~200ms for API-based embeddings)
-- 384-dim vectors, sufficient for 377 short-text catalog items
+Design choice: FAISS + Google text-embedding-004
+- Uses the same GOOGLE_API_KEY as the LLM (no extra credentials)
+- Eliminates the ~800MB PyTorch dependency required by sentence-transformers
+- 768-dim vectors, high quality for 377 short-text catalog items
 
-Embedding model: all-MiniLM-L6-v2 (sentence-transformers)
-Source: https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2
+Embedding model: models/text-embedding-004 (Google Generative AI)
 """
 
+import os
 from pathlib import Path
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 from app.catalog import CatalogManager
 
 
-EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 DEFAULT_INDEX_PATH = str(Path(__file__).parent.parent / "data" / "faiss_index")
 
 
@@ -28,9 +27,9 @@ class AssessmentRetriever:
         self.catalog = catalog
         self.index_path = index_path or DEFAULT_INDEX_PATH
 
-        self.embeddings = HuggingFaceEmbeddings(
-            model_name=EMBEDDING_MODEL,
-            model_kwargs={"device": "cpu"},
+        self.embeddings = GoogleGenerativeAIEmbeddings(
+            model="models/gemini-embedding-001",
+            google_api_key=os.getenv("GOOGLE_API_KEY"),
         )
 
         # Load pre-built index or build new one
@@ -97,3 +96,4 @@ class AssessmentRetriever:
         """Retrieve with similarity scores for debugging/tuning."""
         results = self.vectorstore.similarity_search_with_score(query, k=k)
         return [(doc.metadata, score) for doc, score in results]
+

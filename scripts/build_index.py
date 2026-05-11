@@ -4,6 +4,9 @@ Run this once before starting the server:
     python -m scripts.build_index
 """
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from app.catalog import CatalogManager
 from app.retrieval import AssessmentRetriever
 
