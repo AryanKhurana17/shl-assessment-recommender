@@ -12,7 +12,6 @@ COPY . .
 # Pre-build the FAISS index at build time
 RUN python -m scripts.build_index
 
-EXPOSE 8000
+# Render assigns a dynamic $PORT — must bind to it at runtime
+CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
 
-# Use uvicorn with appropriate settings for production
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
