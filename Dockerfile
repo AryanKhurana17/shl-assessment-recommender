@@ -6,8 +6,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code (includes pre-built FAISS index in data/faiss_index/)
+# Copy application code
 COPY . .
 
-# Render assigns a dynamic $PORT at runtime
+# Render assigns a dynamic $PORT at runtime. 
+# GOOGLE_API_KEY should be set in Render Environment variables.
 CMD uvicorn app.main:app --host 0.0.0.0 --port $PORT
