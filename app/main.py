@@ -85,7 +85,7 @@ async def chat(request: ChatRequest):
         # CRITICAL: Always return valid schema, even on error.
         # Source: Assignment PDF — "Schema compliance on every response" is a hard eval.
         return ChatResponse(
-            reply="I encountered an issue processing your request. Could you try rephrasing?",
+            reply=f"RENDER_ERROR_DIAGNOSTIC: {str(e)}",
             recommendations=[],
             end_of_conversation=False,
         )
