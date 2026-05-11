@@ -1,0 +1,9 @@
+.env
+frontend.py
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.DS_Store
+*.log
+eval_results.json
