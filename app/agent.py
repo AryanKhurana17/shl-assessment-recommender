@@ -61,7 +61,7 @@ def initialize(catalog_path: str = None):
     _catalog = CatalogManager(catalog_path)
     _retriever = AssessmentRetriever(_catalog)
 
-    model = os.getenv("GEMINI_MODEL", "gemini-flash-latest")
+    model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
     _llm = ChatGoogleGenerativeAI(
         model=model,
         temperature=0.1,  # Low temperature for consistent, grounded responses
