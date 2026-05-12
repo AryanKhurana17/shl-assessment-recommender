@@ -16,7 +16,7 @@ import logging
 from typing import TypedDict, Literal,List,Dict,Set
 
 from dotenv import load_dotenv
-from langchain_google_genai import ChatGoogleGenerativeAI, HarmCategory, HarmBlockThreshold
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from langgraph.graph import StateGraph, START, END
 
@@ -66,13 +66,6 @@ def initialize(catalog_path: str = None):
         model=model,
         temperature=0.1,  # Low temperature for consistent, grounded responses
         google_api_key=os.getenv("GOOGLE_API_KEY"),
-        max_retries=6,
-        safety_settings={
-            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-        }
     )
     logger.info(f"Agent initialized: {len(_catalog)} catalog items, model={model}")
 
